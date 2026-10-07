@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [Development, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: pytest --cov=mtverify --cov-report=term-missing
+      - name: offline smoke run (file provider)
+        run: |
+          mtverify init-cases --out cases/smoke.jsonl
+          mtverify run --cases cases/smoke.jsonl --provider file --report-dir reports || test $? -eq 1
