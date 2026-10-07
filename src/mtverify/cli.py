@@ -13,7 +13,7 @@ from mtverify import __version__, languages
 from mtverify import report as report_mod
 from mtverify.config import Settings
 from mtverify.gates import QualityConfig
-from mtverify.providers import PROVIDERS, get_provider
+from mtverify.providers import PROVIDERS, TranslationError, get_provider
 from mtverify.runner import CaseFileError, RunConfig, run
 
 
@@ -36,7 +36,7 @@ def _build() -> argparse.ArgumentParser:
     r.add_argument("--labse-min", type=float, default=0.75)
     r.add_argument("--gpus", type=int, default=0)
     r.add_argument("--repeat", action="store_true", help="translate twice, require identical output")
-    r.add_argument("--batch-size", type=int, default=None)
+    r.add_argument("--batch-size", type=_positive_int, default=None)
     r.add_argument("--fail-fast", action="store_true")
 
     h = sub.add_parser("health", help="gate 1 only")
@@ -49,10 +49,20 @@ def _build() -> argparse.ArgumentParser:
     return p
 
 
+def _positive_int(v: str) -> int:
+    n = int(v)
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return n
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build().parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr)
+    # httpx logs every request URL at INFO; keep provider traffic out of CI logs
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     if args.cmd == "languages":
         print(f"{'code':<5}{'name':<12}{'script':<12}{'detector':<14}bleu-tok")
@@ -71,8 +81,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {dst}")
         return 0
 
+    try:
+        settings = Settings()
+    except ValueError as e:
+        print(f"settings error: {e}", file=sys.stderr)
+        return 2
+
     if args.cmd == "health":
-        prov = get_provider(args.provider, Settings())
+        prov = get_provider(args.provider, settings)
         try:
             hr = prov.health()
         finally:
@@ -88,11 +104,15 @@ def main(argv: list[str] | None = None) -> int:
         repeat=args.repeat,
         batch_size=args.batch_size,
         fail_fast=args.fail_fast,
+        settings=settings,
     )
     try:
         rep = run(args.cases, cfg)
-    except (CaseFileError, languages.UnknownLanguage) as e:
+    except (CaseFileError, languages.UnknownLanguage, OSError, UnicodeDecodeError) as e:
         print(f"case file error: {e}", file=sys.stderr)
+        return 2
+    except TranslationError as e:
+        print(f"provider error: {e}", file=sys.stderr)
         return 2
     j, m = report_mod.write(rep, args.report_dir)
     s = rep.summary
@@ -100,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"provider {rep.provider}  health {'ok' if rep.health.ok else 'FAIL'}  "
           f"cases {s.get('total', 0)}  pass {bs.get('pass', 0)}  fail {bs.get('fail', 0)}  "
           f"error {bs.get('error', 0)}  languages {s.get('languages', 0)}")
+    if s.get("total") and not s.get("quality_scored"):
+        print("WARNING quality gate scored 0 cases: add references or --comet Unbabel/wmt22-cometkiwi-da",
+              file=sys.stderr)
     if s.get("metric_means"):
         print("means  " + "  ".join(f"{k} {v}" for k, v in s["metric_means"].items()))
     if s.get("failing_checks"):

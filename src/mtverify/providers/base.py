@@ -61,7 +61,9 @@ class HttpProvider(Provider):
         for attempt in range(1, attempts + 1):
             try:
                 resp = self._client.request(method, url, **kw)
-            except (httpx.TimeoutException, httpx.TransportError) as e:
+            except httpx.InvalidURL as e:
+                raise TranslationError(f"{self.name}: bad URL: {e}") from e
+            except httpx.RequestError as e:  # timeouts, transport, decoding, redirects
                 last = TransientError(f"{self.name}: {type(e).__name__}: {e}")
             else:
                 if resp.status_code < 400:
@@ -71,7 +73,7 @@ class HttpProvider(Provider):
                     last = TransientError(f"{self.name}: HTTP {resp.status_code}: {body}")
                     retry_after = resp.headers.get("Retry-After")
                     if retry_after and retry_after.isdigit():
-                        delay = max(delay, float(retry_after))
+                        delay = min(max(delay, float(retry_after)), 60.0)
                 else:
                     raise TranslationError(f"{self.name}: HTTP {resp.status_code}: {body}")
             if attempt < attempts:
@@ -86,6 +88,7 @@ class HttpProvider(Provider):
         t0 = time.perf_counter()
         try:
             detail = fn()
-        except TranslationError as e:
-            return HealthResult(ok=False, detail=str(e), latency_ms=(time.perf_counter() - t0) * 1000)
+        except Exception as e:  # a health probe must never raise
+            detail = str(e) if isinstance(e, TranslationError) else f"{type(e).__name__}: {e}"
+            return HealthResult(ok=False, detail=detail, latency_ms=(time.perf_counter() - t0) * 1000)
         return HealthResult(ok=True, detail=detail, latency_ms=(time.perf_counter() - t0) * 1000)

@@ -19,6 +19,7 @@ from mtverify.patterns import NUMBER as _NUMBER
 from mtverify.patterns import NUMBER_SEPARATORS as _NUMBER_SEPARATORS
 from mtverify.patterns import PLACEHOLDER as _PLACEHOLDER
 from mtverify.patterns import URL as _URL
+from mtverify.patterns import find_urls
 
 
 def _normalize_digits(text: str) -> str:
@@ -55,8 +56,8 @@ def check_placeholders(src: str, hyp: str) -> CheckResult:
 
 
 def _tag_key(m: re.Match) -> str:
-    closing, name, selfclose = m.group(1), m.group(2).lower(), m.group(3)
-    return f"</{name}>" if closing else (f"<{name}/>" if selfclose else f"<{name}>")
+    closing, name = m.group(1), m.group(2).lower()
+    return f"</{name}>" if closing else f"<{name}>"  # <br> and <br/> count as the same tag
 
 
 def check_html_tags(src: str, hyp: str) -> CheckResult:
@@ -82,8 +83,8 @@ def check_numbers(src: str, hyp: str) -> CheckResult:
 
 
 def check_urls_emails(src: str, hyp: str) -> CheckResult:
-    exp = Counter(_URL.findall(src) + _EMAIL.findall(src))
-    got = Counter(_URL.findall(hyp) + _EMAIL.findall(hyp))
+    exp = Counter(find_urls(src) + _EMAIL.findall(src))
+    got = Counter(find_urls(hyp) + _EMAIL.findall(hyp))
     if not exp:
         return CheckResult(name="urls_emails", status="skip", detail="none in source")
     if exp == got:
@@ -116,8 +117,8 @@ def check_untranslated(src: str, hyp: str, source_lang: str, target: str) -> Che
 
 
 def check_length_ratio(src: str, hyp: str, target: str) -> CheckResult:
-    if not src.strip():
-        return CheckResult(name="length_ratio", status="skip")
+    if len(src.strip()) < 10:
+        return CheckResult(name="length_ratio", status="skip", detail="source too short to judge")
     lo, hi = languages.get(target).length_ratio
     ratio = len(hyp) / max(1, len(src))
     ok = lo <= ratio <= hi

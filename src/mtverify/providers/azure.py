@@ -28,7 +28,7 @@ class AzureProvider(HttpProvider):
 
     def translate(self, texts: list[str], source: str, target: str) -> list[str]:
         url = f"{self.settings.azure_endpoint.rstrip('/')}/translate"
-        params = {"api-version": "3.0", "from": source, "to": _azure_target(target), "textType": "plain"}
+        params = {"api-version": "3.0", "from": _azure_target(source), "to": _azure_target(target), "textType": "plain"}
         body = [{"Text": t} for t in texts]
         r = self.request("POST", url, params=params, headers=self._headers(), json=body)
         try:

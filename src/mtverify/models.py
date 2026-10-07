@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Status = Literal["pass", "fail", "skip", "error"]
 
@@ -14,6 +14,7 @@ class TestCase(BaseModel):
     """One source string that must be translated into one target language."""
 
     __test__ = False  # keep pytest from collecting this model
+    model_config = ConfigDict(extra="forbid")  # a typo like "refrence" must not silently skip gate 3
 
     id: str
     source: str

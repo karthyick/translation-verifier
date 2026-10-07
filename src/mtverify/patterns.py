@@ -8,13 +8,19 @@ import re
 PLACEHOLDER = re.compile(
     r"\{\{[^{}]+\}\}|\{[^{}\s]+\}|\$\{[^}]+\}|%\([A-Za-z_][\w]*\)[sdif]|%\d+\$[sd]|%[sdif]|(?<!\w):[A-Za-z_]\w*\b"
 )
-HTML_TAG = re.compile(r"<\s*(/?)\s*([A-Za-z][\w-]*)[^<>]*?(/?)\s*>")
-URL = re.compile(r"https?://[^\s<>\"']+|www\.[^\s<>\"']+")
+HTML_TAG = re.compile(r"<(/?)([A-Za-z][\w-]*)(?:\s[^<>]*?)?\s*(/?)>")
+URL = re.compile("(?:https?://|www\\.)[^\\s<>\"'\u0e00-\u0e7f\u3000-\u9fff\uff00-\uffef]+")
+_URL_TRAIL = ".,;:!?)]}'\""
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # digits with any common group/decimal separator, including Arabic ones and the spaces fr/de use
 NUMBER = re.compile("\\d+(?:[.,:\u066b\u066c\u00a0\u202f' ]\\d+)*")
 NUMBER_SEPARATORS = re.compile("[.,:\u066b\u066c\u00a0\u202f' ]")
 BAD_CHARS = re.compile("[\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def find_urls(text: str) -> list[str]:
+    """URLs with trailing punctuation removed, so `see https://x.io.` yields https://x.io."""
+    return [m.rstrip(_URL_TRAIL) for m in URL.findall(text)]
 
 
 def strip_non_language(text: str) -> str:

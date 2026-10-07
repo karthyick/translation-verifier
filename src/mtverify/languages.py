@@ -35,6 +35,7 @@ class Lang:
     lingua: str | None  # lingua Language enum name, or None when lingua cannot detect it
     bleu_tokenize: str = "13a"  # sacrebleu tokenizer; "char" for scripts without spaces
     length_ratio: tuple[float, float] = (0.3, 3.5)  # allowed len(hyp)/len(src)
+    required: tuple[Range, ...] | None = None  # at least one letter must sit here (ja: kana)
 
 
 REGISTRY: dict[str, Lang] = {
@@ -54,7 +55,7 @@ REGISTRY: dict[str, Lang] = {
         Lang("ar", "Arabic", "Arabic", _ARABIC, "ARABIC"),
         Lang("fa", "Persian", "Arabic", _ARABIC, "PERSIAN"),
         Lang("zh", "Chinese", "Han", _CJK, "CHINESE", "zh", (0.15, 2.0)),
-        Lang("ja", "Japanese", "Kana+Han", _KANA + _CJK, "JAPANESE", "char", (0.2, 2.5)),
+        Lang("ja", "Japanese", "Kana+Han", _KANA + _CJK, "JAPANESE", "char", (0.2, 2.5), required=_KANA),
         Lang("ko", "Korean", "Hangul", _HANGUL, "KOREAN", "char", (0.2, 2.5)),
         Lang("th", "Thai", "Thai", ((0x0E00, 0x0E7F),), "THAI", "char", (0.3, 3.5)),
         Lang("vi", "Vietnamese", "Latin", _LATIN, "VIETNAMESE"),
@@ -73,6 +74,7 @@ REGISTRY: dict[str, Lang] = {
 
 SCRIPT_RATIO_MIN = 0.6  # share of letters that must sit in the expected script
 LINGUA_CONFIDENCE_MIN = 0.6  # lingua must be this sure before it overrides the script check
+LINGUA_MIN_LETTERS = 20  # below this lingua is guessing; the script check alone decides
 
 
 class UnknownLanguage(ValueError):
@@ -145,14 +147,14 @@ def detect(text: str, expected_code: str) -> Detection:
             False, lang.code, None, "script", ratio,
             f"only {ratio:.0%} of letters are {lang.script} script",
         )
-    if lang.lingua is None:
+    if lang.required and not any(_in_ranges(ch, lang.required) for ch in _letters(text)):
+        return Detection(False, lang.code, None, "script", ratio, f"no {lang.script.split('+')[0]} letters at all")
+    if lang.lingua is None or len(_letters(text)) < LINGUA_MIN_LETTERS:
         return Detection(True, lang.code, lang.code, "script", ratio, f"{ratio:.0%} {lang.script}")
     guess, conf = _lingua_guess(text)
     if guess and guess != lang.code and conf >= LINGUA_CONFIDENCE_MIN:
-        siblings_same_script = get(guess).ranges == lang.ranges
-        if siblings_same_script:
-            return Detection(
-                False, lang.code, guess, "lingua", ratio,
-                f"script ok but lingua says {guess} ({conf:.2f})",
-            )
+        return Detection(
+            False, lang.code, guess, "lingua", ratio,
+            f"script ok but lingua says {guess} ({conf:.2f})",
+        )
     return Detection(True, lang.code, guess or lang.code, "script+lingua", ratio, f"{ratio:.0%} {lang.script}")

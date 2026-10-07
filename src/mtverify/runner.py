@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -73,10 +74,9 @@ def _translate_all(provider: Provider, cases: list[TestCase], cfg: RunConfig
     latency: dict[str, float] = {}
     errors: dict[str, str] = {}
     if isinstance(provider, FileProvider):
+        # no second call for file: idempotency is meaningless there, so the check stays "skip"
         for c, h in zip(cases, provider.translate_cases(cases), strict=True):
             hyps[c.id], latency[c.id] = h, 0.0
-            if cfg.repeat:
-                seconds[c.id] = h
         return hyps, seconds, latency, errors
     by_pair: dict[tuple[str, str], list[TestCase]] = defaultdict(list)
     for c in cases:
@@ -88,15 +88,17 @@ def _translate_all(provider: Provider, cases: list[TestCase], cfg: RunConfig
             t0 = time.perf_counter()
             try:
                 out = provider.translate(texts, src, tgt)
+                per = (time.perf_counter() - t0) * 1000 / len(batch)  # first call only
                 second = provider.translate(texts, src, tgt) if cfg.repeat else None
-            except TranslationError as e:
-                log.error("%s->%s batch of %d failed: %s", src, tgt, len(batch), e)
+            except Exception as e:  # one bad batch must not kill the run or lose the report
+                log.error("%s->%s batch of %d failed: %s: %s", src, tgt, len(batch), type(e).__name__, e,
+                          exc_info=not isinstance(e, TranslationError))
+                msg = str(e) if isinstance(e, TranslationError) else f"{type(e).__name__}: {e}"
                 for c in batch:
-                    errors[c.id] = str(e)
+                    errors[c.id] = msg
                 if cfg.fail_fast:
                     return hyps, seconds, latency, errors
                 continue
-            per = (time.perf_counter() - t0) * 1000 / len(batch)
             for i, c in enumerate(batch):
                 hyps[c.id] = out[i]
                 latency[c.id] = per
@@ -122,10 +124,14 @@ def _summarize(report_cases: list[CaseReport], health: HealthResult) -> dict:
     means = {k: round(sum(v) / len(v), 2) for k, v in metric_vals.items() if v}
     lat = [c.latency_ms for c in report_cases if c.latency_ms is not None]
     lat_sorted = sorted(lat)
-    p95 = lat_sorted[int(0.95 * (len(lat_sorted) - 1))] if lat_sorted else None
+    p95 = lat_sorted[max(0, math.ceil(0.95 * len(lat_sorted)) - 1)] if lat_sorted else None
+    quality_scored = sum(
+        1 for c in report_cases for g in c.gates if g.gate == "quality" and g.status in ("pass", "fail")
+    )
     return {
         "health_ok": health.ok,
         "total": len(report_cases),
+        "quality_scored": quality_scored,
         "by_status": dict(by_status),
         "languages": len(by_lang),
         "by_language": {k: dict(v) for k, v in sorted(by_lang.items())},

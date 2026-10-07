@@ -172,7 +172,7 @@ src/mtverify/
   providers/         base (HttpProvider with retry), deepl, google, azure, file
   gates/             health, functional, quality
   data/smoke.jsonl   bundled 27-language smoke set
-tests/               46 tests, all offline (httpx.MockTransport for providers)
+tests/               62 tests, all offline (httpx.MockTransport for providers)
 ```
 
 ---
@@ -209,7 +209,7 @@ any API call is made.
 |---|---|---|---|
 | `file` | none | always ok | grades `hypothesis` from the case file; CI friendly |
 | `deepl` | `MTVERIFY_DEEPL_KEY` | `GET /v2/usage` | `:fx` key routes to api-free.deepl.com; pt -> PT-BR, zh -> ZH-HANS |
-| `google` | `MTVERIFY_GOOGLE_KEY` | `GET /languages` | Basic v2 REST with API key, `format=text` |
+| `google` | `MTVERIFY_GOOGLE_KEY` | `GET /languages` | Basic v2 REST, key sent as `X-goog-api-key` header so it never lands in a logged URL, `format=text` |
 | `azure` | `MTVERIFY_AZURE_KEY`, `MTVERIFY_AZURE_REGION`, optional `MTVERIFY_AZURE_ENDPOINT` | one-word translate | Text Translation v3.0; zh -> zh-Hans, pt -> pt-br |
 
 Common: `MTVERIFY_TIMEOUT` (seconds, default 30), `MTVERIFY_RETRIES` (default 3).
@@ -358,7 +358,7 @@ new metric:    add a _xxx_scores() method on QualityScorer that returns one Chec
 
 | what | how | result |
 |---|---|---|
-| unit + integration tests | `pytest` | 46 passed |
+| unit + integration tests | `pytest` | 62 passed |
 | lint | `ruff check src tests` | clean |
 | offline smoke run | `mtverify run --cases cases/smoke.jsonl --provider file` | 27 pass, 5 fail (the 5 planted), exit 1 |
 | missing key path | `mtverify health --provider deepl` with no key | `FAIL deepl: MTVERIFY_DEEPL_KEY is not set`, exit 2 |

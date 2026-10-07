@@ -12,14 +12,15 @@ class GoogleProvider(HttpProvider):
     name = "google"
     max_batch = 100
 
-    def _key(self) -> str:
+    def _headers(self) -> dict[str, str]:
         if not self.settings.google_key:
             raise TranslationError("google: MTVERIFY_GOOGLE_KEY is not set")
-        return self.settings.google_key
+        # header, never the query string: httpx logs request URLs at INFO
+        return {"X-goog-api-key": self.settings.google_key}
 
     def health(self) -> HealthResult:
         def probe() -> str:
-            r = self.request("GET", f"{_URL}/languages", params={"key": self._key(), "target": "en"})
+            r = self.request("GET", f"{_URL}/languages", params={"target": "en"}, headers=self._headers())
             n = len(r.json().get("data", {}).get("languages", []))
             return f"{n} languages available"
 
@@ -27,7 +28,7 @@ class GoogleProvider(HttpProvider):
 
     def translate(self, texts: list[str], source: str, target: str) -> list[str]:
         payload = {"q": texts, "source": source, "target": target, "format": "text"}
-        r = self.request("POST", _URL, params={"key": self._key()}, json=payload)
+        r = self.request("POST", _URL, headers=self._headers(), json=payload)
         try:
             out = [t["translatedText"] for t in r.json()["data"]["translations"]]
         except (KeyError, TypeError, ValueError) as e:

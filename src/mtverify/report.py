@@ -9,6 +9,11 @@ from mtverify.models import RunReport
 _ICON = {"pass": "PASS", "fail": "FAIL", "skip": "skip", "error": "ERROR"}
 
 
+def _code(s: str) -> str:
+    """Inline code span that survives backticks and newlines inside the text."""
+    return "`" + s.replace("`", "'").replace("\n", " ") + "`"
+
+
 def to_json(report: RunReport) -> str:
     data = report.model_dump(mode="json")
     for c, cr in zip(data["cases"], report.cases, strict=True):
@@ -51,11 +56,11 @@ def to_markdown(report: RunReport) -> str:
     for c in report.cases:
         lines.append(f"### {_ICON[c.status]} {c.case_id} ({c.source_lang}->{c.target_lang})")
         lines.append("")
-        lines.append(f"- source: `{c.source}`")
+        lines.append(f"- source: {_code(c.source)}")
         if c.hypothesis is not None:
-            lines.append(f"- output: `{c.hypothesis}`")
+            lines.append(f"- output: {_code(c.hypothesis)}")
         if c.reference:
-            lines.append(f"- reference: `{c.reference}`")
+            lines.append(f"- reference: {_code(c.reference)}")
         if c.error:
             lines.append(f"- error: {c.error}")
         for g in c.gates:

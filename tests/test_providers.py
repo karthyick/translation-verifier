@@ -35,7 +35,7 @@ def test_deepl_translate_and_health(settings):
 
 def test_google_parses_v2_shape(settings):
     def handler(req: httpx.Request):
-        assert req.url.params["key"] == "g"
+        assert req.headers["X-goog-api-key"] == "g"
         return httpx.Response(200, json={"data": {"translations": [{"translatedText": "Bonjour"}]}})
 
     p = _provider(GoogleProvider, settings, handler)
