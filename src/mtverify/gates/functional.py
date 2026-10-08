@@ -116,6 +116,28 @@ def check_untranslated(src: str, hyp: str, source_lang: str, target: str) -> Che
     return CheckResult(name="untranslated", status="pass")
 
 
+_WORD = re.compile(r"[A-Za-z]{3,}")
+
+
+def check_leftover_source(src: str, hyp: str, source_lang: str, target: str) -> CheckResult:
+    """Non-Latin target still carrying source words, e.g. ja output with 'Pay now' left in English.
+
+    Placeholders, tags, URLs and emails are ignored, and so are ALL-CAPS tokens like USD or API.
+    """
+    tgt = languages.get(target)
+    if source_lang == target or tgt.script == "Latin" or languages.get(source_lang).script != "Latin":
+        return CheckResult(name="leftover_source", status="skip", detail="same script family")
+    from mtverify.patterns import strip_non_language
+
+    def words(text: str) -> set[str]:
+        return {w.lower() for w in _WORD.findall(strip_non_language(text)) if not w.isupper()}
+
+    left = sorted(words(src) & words(hyp))
+    if len(left) >= 2:
+        return CheckResult(name="leftover_source", status="fail", detail="untranslated: " + ", ".join(left))
+    return CheckResult(name="leftover_source", status="pass")
+
+
 def check_length_ratio(src: str, hyp: str, target: str) -> CheckResult:
     if len(src.strip()) < 10:
         return CheckResult(name="length_ratio", status="skip", detail="source too short to judge")
@@ -164,6 +186,7 @@ def functional_gate(case: TestCase, hyp: str, second_hyp: str | None = None) -> 
         check_urls_emails(src, hyp),
         check_language(hyp, tgt),
         check_untranslated(src, hyp, case.source_lang, tgt),
+        check_leftover_source(src, hyp, case.source_lang, tgt),
         check_length_ratio(src, hyp, tgt),
         check_glossary(hyp, case.glossary),
         check_encoding(hyp),

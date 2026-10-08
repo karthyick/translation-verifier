@@ -1,8 +1,9 @@
 # translation-verifier (`mtverify`)
 
 Verify any machine translation service in four gates: **alive**, **intact**, **accurate**, **still good**.
-Works against DeepL, Google Cloud Translation, Azure Translator, or an offline file of outputs.
-Ships with a 27-language smoke set and runs with no API key at all.
+It can also **translate for free** and verify in one step: an open-source model on your own machine
+(`local`, no key, no bill, offline) or the free MyMemory web API (`mymemory`, no key).
+Paid services (DeepL, Google, Azure) are optional. Ships with a 27-language smoke set.
 
 ```
 pip install -e .            # core: sacrebleu, lingua, httpx, pydantic
@@ -120,6 +121,58 @@ health: ok (32 hypotheses loaded from file)
 | bleu | 89.54 |
 ```
 
+## Free translation and verification, no paid service
+
+```
+ English text --> translator (free) --> GATE 1 --> GATE 2 --> GATE 3 --> table + report
+                  |                                           LaBSE meaning, no reference needed
+                  +-- local    : open-source model on your machine, offline, no key
+                  +-- mymemory : free public web API, no key, needs internet
+```
+
+```
+pip install -e ".[local,labse]"
+mtverify translate --to ja "water" "Good morning" "Hello {name}, your order #123 ships on Monday."
+mtverify translate --to ja --file words.txt                       # one string per line
+mtverify translate --to ja --file words.txt --provider mymemory   # online instead of local
+mtverify translate --to ja --file words.txt --model facebook/m2m100_418M   # small, fast model
+```
+
+Real output, English to Japanese, local MADLAD-3B on a MacBook (Apple MPS):
+
+```
+#   status source                          translation
+t1  PASS   Thank you very much             ありがとうございました
+t2  PASS   Hello {name}, your order #123   こんにちは {name} あなたの注文No.123は月曜日に出荷されます。
+t3  PASS   Click <b>Pay now</b> to finish  <b>今払う</b>をクリックしてオーダーを完了します。
+```
+
+Before translating, placeholders, tags, URLs and emails are swapped for `<x0/>` `<x1/>` and put back after.
+Tested on m2m100 in ja/ta/de/hi/zh: `<xN/>` survives where `{0}`, `[0]` and `__0__` get dropped.
+
+**Which free model**
+
+| model | licence | business use | size | 27-language run (81 strings) |
+|---|---|---|---|---|
+| `google/madlad400-3b-mt` (default) | Apache-2.0 | yes | ~12 GB, ~6 GB RAM in bf16 | **70 pass**, 11 real errors caught |
+| `facebook/m2m100_418M` | MIT | yes | ~2 GB | 62 pass; wrong script in kn/gu/pa/ml, **no Telugu** |
+| `facebook/nllb-200-distilled-600M` | CC-BY-NC | **no** | ~2.5 GB | not run; licence bars company use |
+| MyMemory web API | free service | check their terms | none | 26 of 27 pass on one sentence; best Japanese wording |
+
+**What the gates caught in the free models** (every fail was a real mistake, no false alarms)
+
+| caught | example | check |
+|---|---|---|
+| invented text | mr: order sentence became "July 12, World War 2, Japan attacked..." | placeholders |
+| wrong meaning | de/pt/it/pl/zh: "Thank you very much" became "Thank you for your rating" | LaBSE < 0.75 |
+| English left in | ja/ml/bn/fa: `<b>Pay now</b>` untouched | leftover_source |
+| wrong script | m2m100 kn/gu/pa/ml: output not in the target script | language |
+| garbage | m2m100 kn: `* * * * * *` | LaBSE 0.10 |
+
+Still missed: "ships" as "boat" (te: నౌకలు) scored LaBSE 0.92. Only COMET with a reference catches that.
+
+---
+
 ## Quickstart, live provider
 
 ```
@@ -169,10 +222,10 @@ src/mtverify/
   config.py          Settings from env vars; redacted() for logs, keys never printed
   languages.py       28-language registry, script ranges, lingua detection
   patterns.py        shared regexes: placeholders, tags, urls, numbers
-  providers/         base (HttpProvider with retry), deepl, google, azure, file
+  providers/         base (HttpProvider with retry), deepl, google, azure, file, local, mymemory
   gates/             health, functional, quality
   data/smoke.jsonl   bundled 27-language smoke set
-tests/               226 tests, all offline (httpx.MockTransport for providers)
+tests/               238 tests, all offline (httpx.MockTransport for providers)
 ```
 
 ---
@@ -211,6 +264,8 @@ any API call is made.
 | `deepl` | `MTVERIFY_DEEPL_KEY` | `GET /v2/usage` | `:fx` key routes to api-free.deepl.com; pt -> PT-BR, zh -> ZH-HANS |
 | `google` | `MTVERIFY_GOOGLE_KEY` | `GET /languages` | Basic v2 REST, key sent as `X-goog-api-key` header so it never lands in a logged URL, `format=text` |
 | `azure` | `MTVERIFY_AZURE_KEY`, `MTVERIFY_AZURE_REGION`, optional `MTVERIFY_AZURE_ENDPOINT` | one-word translate | Text Translation v3.0; zh -> zh-Hans, pt -> pt-br |
+| `local` | optional `MTVERIFY_LOCAL_MODEL`, `MTVERIFY_DEVICE` | translate 'Hello' | free, offline, Hugging Face model; `pip install -e ".[local]"` |
+| `mymemory` | optional `MTVERIFY_MYMEMORY_EMAIL` (raises the daily limit) | translate 'Hello' | free public web API, no key; text leaves your machine |
 
 Common: `MTVERIFY_TIMEOUT` (seconds, default 30), `MTVERIFY_RETRIES` (default 3).
 Retry policy: 429 and 5xx retry with exponential backoff and honour `Retry-After`; other 4xx fail at once.
@@ -227,7 +282,8 @@ Keys are read from the environment only and never appear in logs or reports (`Se
 | `urls_emails` | any URL or email changed | |
 | `language` | output is not in the target language | Unicode script ratio >= 60%, lingua for same-script pairs (hi/mr, ur/ar/fa, zh/ja) |
 | `untranslated` | output equals input (case-insensitive) | skips when source is only placeholders/numbers |
-| `length_ratio` | `len(out)/len(src)` outside the language's band | zh 0.15-2.0, ja/ko 0.2-2.5, others 0.3-3.5 |
+| `leftover_source` | 2+ source words still in a non-Latin output, e.g. `Pay now` left in Japanese | ignores placeholders, tags, URLs and ALL-CAPS like `USD` |
+| `length_ratio` | `len(out)/len(src)` outside the language's band | zh/ja 0.1, ko 0.15, others 0.3 minimum; skipped under 10 chars |
 | `glossary` | a required target term is missing | case-insensitive |
 | `encoding` | U+FFFD or control chars present | |
 | `idempotent` | second call differs (`--repeat`) | |
@@ -303,11 +359,13 @@ lingua enum name (or `None`), BLEU tokenizer, length band.
 ## CLI
 
 ```
-mtverify run --cases F --provider {file,deepl,google,azure}
+mtverify run --cases F --provider {file,local,mymemory,deepl,google,azure}
              [--report-dir reports] [--chrf-min 50] [--bleu-min N]
              [--comet MODEL] [--comet-min 0.75] [--labse] [--labse-min 0.75] [--gpus 0]
              [--repeat] [--batch-size N] [--fail-fast] [-v]
-mtverify health --provider {deepl,google,azure}
+mtverify translate TEXT... [--file F] --to ja [--from en] [--provider local|mymemory|...]
+                   [--model ID] [--no-labse] [--labse-min 0.75] [--report-dir reports]
+mtverify health --provider {local,mymemory,deepl,google,azure}
 mtverify languages
 mtverify init-cases [--out cases/smoke.jsonl]
 ```
@@ -351,6 +409,8 @@ new metric:    add a _xxx_scores() method on QualityScorer that returns one Chec
   direction broke, so it is a weak signal.
 - lingua has no Kannada or Malayalam model; those two use the script check only, which still
   catches wrong-language and untranslated output.
+- LaBSE is the only meaning check that needs no reference, and it is weak: "ships" translated as
+  "boat" still scored 0.92. Give references and turn on COMET when meaning matters.
 - COMET and LaBSE models are hundreds of MB to several GB and want a GPU for large runs.
   CometKiwi XXL needs about 44 GB of GPU memory; the base `wmt22` models fit a laptop.
 
@@ -360,7 +420,7 @@ new metric:    add a _xxx_scores() method on QualityScorer that returns one Chec
 
 | what | how | result |
 |---|---|---|
-| unit + integration tests | `pytest` | 226 passed |
+| unit + integration tests | `pytest` | 238 passed |
 | per-language damage matrix | `tests/test_all_languages.py` | 27 languages x 6 cases, all caught |
 | lint | `ruff check src tests` | clean |
 | offline smoke run | `mtverify run --cases cases/smoke.jsonl --provider file` | 27 pass, 5 fail (the 5 planted), exit 1 |

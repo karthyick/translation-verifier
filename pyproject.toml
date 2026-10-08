@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 comet = ["unbabel-comet>=2.2", "setuptools<80"]  # torchmetrics 0.10 still imports pkg_resources
 labse = ["sentence-transformers>=3.0"]
+local = ["transformers>=4.40", "sentencepiece>=0.2", "torch>=2.2"]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.5"]
 
 [project.scripts]

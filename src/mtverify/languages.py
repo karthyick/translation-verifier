@@ -54,9 +54,9 @@ REGISTRY: dict[str, Lang] = {
         Lang("ur", "Urdu", "Arabic", _ARABIC, "URDU"),
         Lang("ar", "Arabic", "Arabic", _ARABIC, "ARABIC"),
         Lang("fa", "Persian", "Arabic", _ARABIC, "PERSIAN"),
-        Lang("zh", "Chinese", "Han", _CJK, "CHINESE", "zh", (0.15, 2.0)),
-        Lang("ja", "Japanese", "Kana+Han", _KANA + _CJK, "JAPANESE", "char", (0.2, 2.5), required=_KANA),
-        Lang("ko", "Korean", "Hangul", _HANGUL, "KOREAN", "char", (0.2, 2.5)),
+        Lang("zh", "Chinese", "Han", _CJK, "CHINESE", "zh", (0.1, 2.0)),
+        Lang("ja", "Japanese", "Kana+Han", _KANA + _CJK, "JAPANESE", "char", (0.1, 2.5), required=_KANA),
+        Lang("ko", "Korean", "Hangul", _HANGUL, "KOREAN", "char", (0.15, 2.5)),
         Lang("th", "Thai", "Thai", ((0x0E00, 0x0E7F),), "THAI", "char", (0.3, 3.5)),
         Lang("vi", "Vietnamese", "Latin", _LATIN, "VIETNAMESE"),
         Lang("id", "Indonesian", "Latin", _LATIN, "INDONESIAN"),
@@ -75,6 +75,7 @@ REGISTRY: dict[str, Lang] = {
 SCRIPT_RATIO_MIN = 0.6  # share of letters that must sit in the expected script
 LINGUA_CONFIDENCE_MIN = 0.6  # lingua must be this sure before it overrides the script check
 LINGUA_MIN_LETTERS = 20  # below this lingua is guessing; the script check alone decides
+REQUIRED_MIN_LETTERS = 6  # 水 or 東京 are valid Japanese with no kana; demand kana only on longer text
 
 
 class UnknownLanguage(ValueError):
@@ -147,7 +148,10 @@ def detect(text: str, expected_code: str) -> Detection:
             False, lang.code, None, "script", ratio,
             f"only {ratio:.0%} of letters are {lang.script} script",
         )
-    if lang.required and not any(_in_ranges(ch, lang.required) for ch in _letters(text)):
+    letters = _letters(text)
+    if lang.required and len(letters) >= REQUIRED_MIN_LETTERS and not any(
+        _in_ranges(ch, lang.required) for ch in letters
+    ):
         return Detection(False, lang.code, None, "script", ratio, f"no {lang.script.split('+')[0]} letters at all")
     if lang.lingua is None or len(_letters(text)) < LINGUA_MIN_LETTERS:
         return Detection(True, lang.code, lang.code, "script", ratio, f"{ratio:.0%} {lang.script}")

@@ -8,12 +8,16 @@ from mtverify.providers.base import Provider, TransientError, TranslationError
 from mtverify.providers.deepl import DeepLProvider
 from mtverify.providers.file import FileProvider
 from mtverify.providers.google import GoogleProvider
+from mtverify.providers.local import LocalProvider
+from mtverify.providers.mymemory import MyMemoryProvider
 
 PROVIDERS: dict[str, type[Provider]] = {
     "file": FileProvider,
     "deepl": DeepLProvider,
     "google": GoogleProvider,
     "azure": AzureProvider,
+    "local": LocalProvider,
+    "mymemory": MyMemoryProvider,
 }
 
 
