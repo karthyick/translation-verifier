@@ -72,3 +72,12 @@ def test_functional_gate_good_and_bad():
     assert bad.status == "fail"
     assert _status(bad.checks, "placeholders") == "fail"
     assert _status(bad.checks, "language") == "pass"
+
+
+def test_leftover_source_words_in_non_latin_target():
+    src = "Click <b>Pay now</b> to finish your order."
+    assert f.check_leftover_source(src, "注文を完了するために <b>Pay now</b> をクリック", "en", "ja").status == "fail"
+    ok = "注文を完了するために <b>今すぐ支払う</b> をクリック"
+    assert f.check_leftover_source(src, ok, "en", "ja").status == "pass"
+    assert f.check_leftover_source("Balance 1,250 USD today", "残高 1,250 USD", "en", "ja").status == "pass"
+    assert f.check_leftover_source(src, "Klicken Sie Pay now", "en", "de").status == "skip"

@@ -40,6 +40,15 @@ class Provider(ABC):
         """Release connections. Providers without a transport have nothing to do."""
         return None
 
+    def _timed(self, fn: Callable[[], str]) -> HealthResult:
+        t0 = time.perf_counter()
+        try:
+            detail = fn()
+        except Exception as e:  # a health probe must never raise
+            detail = str(e) if isinstance(e, TranslationError) else f"{type(e).__name__}: {e}"
+            return HealthResult(ok=False, detail=detail, latency_ms=(time.perf_counter() - t0) * 1000)
+        return HealthResult(ok=True, detail=detail, latency_ms=(time.perf_counter() - t0) * 1000)
+
 
 class HttpProvider(Provider):
     """Base for REST providers. Subclasses build the request, this class handles transport."""
@@ -84,11 +93,3 @@ class HttpProvider(Provider):
         assert last is not None
         raise last
 
-    def _timed(self, fn: Callable[[], str]) -> HealthResult:
-        t0 = time.perf_counter()
-        try:
-            detail = fn()
-        except Exception as e:  # a health probe must never raise
-            detail = str(e) if isinstance(e, TranslationError) else f"{type(e).__name__}: {e}"
-            return HealthResult(ok=False, detail=detail, latency_ms=(time.perf_counter() - t0) * 1000)
-        return HealthResult(ok=True, detail=detail, latency_ms=(time.perf_counter() - t0) * 1000)

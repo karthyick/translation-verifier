@@ -143,9 +143,15 @@ def _summarize(report_cases: list[CaseReport], health: HealthResult) -> dict:
 
 
 def run(cases_path: str | Path, cfg: RunConfig | None = None) -> RunReport:
+    return run_cases(load_cases(cases_path), cfg)
+
+
+def run_cases(cases: list[TestCase], cfg: RunConfig | None = None) -> RunReport:
+    """Run all gates over cases already in memory (used by `mtverify translate`)."""
     cfg = cfg or RunConfig()
     started = datetime.now(timezone.utc)
-    cases = load_cases(cases_path)
+    if not cases:
+        raise CaseFileError("no cases")
     provider = get_provider(cfg.provider, cfg.settings)
     if isinstance(provider, FileProvider):
         provider.load(cases)

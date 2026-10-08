@@ -22,6 +22,9 @@ def _num(name: str, default: str, cast):
         raise ValueError(f"{name} must be a {cast.__name__}, got {raw!r}") from e
 
 
+DEFAULT_LOCAL_MODEL = "google/madlad400-3b-mt"  # Apache-2.0, all 27 languages
+
+
 @dataclass(frozen=True)
 class Settings:
     deepl_key: str | None = field(default_factory=lambda: _env("MTVERIFY_DEEPL_KEY", "DEEPL_AUTH_KEY"))
@@ -42,6 +45,10 @@ class Settings:
     )
     timeout_s: float = field(default_factory=lambda: _num("MTVERIFY_TIMEOUT", "30", float))
     retries: int = field(default_factory=lambda: _num("MTVERIFY_RETRIES", "3", int))
+    local_model: str = field(
+        default_factory=lambda: _env("MTVERIFY_LOCAL_MODEL") or DEFAULT_LOCAL_MODEL
+    )
+    device: str = field(default_factory=lambda: _env("MTVERIFY_DEVICE", default="auto") or "auto")
 
     def redacted(self) -> dict[str, str]:
         """Safe to log: never shows a key, only whether one is set."""
@@ -52,4 +59,6 @@ class Settings:
             "azure_region": self.azure_region or "unset",
             "timeout_s": str(self.timeout_s),
             "retries": str(self.retries),
+            "local_model": self.local_model,
+            "device": self.device,
         }

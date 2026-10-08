@@ -1,4 +1,4 @@
-"""Command line entry point: mtverify run | health | languages | init-cases."""
+"""Command line entry point: mtverify run | translate | health | languages | init-cases."""
 
 from __future__ import annotations
 
@@ -13,8 +13,9 @@ from mtverify import __version__, languages
 from mtverify import report as report_mod
 from mtverify.config import Settings
 from mtverify.gates import QualityConfig
+from mtverify.models import TestCase
 from mtverify.providers import PROVIDERS, TranslationError, get_provider
-from mtverify.runner import CaseFileError, RunConfig, run
+from mtverify.runner import CaseFileError, RunConfig, run, run_cases
 
 
 def _build() -> argparse.ArgumentParser:
@@ -38,6 +39,17 @@ def _build() -> argparse.ArgumentParser:
     r.add_argument("--repeat", action="store_true", help="translate twice, require identical output")
     r.add_argument("--batch-size", type=_positive_int, default=None)
     r.add_argument("--fail-fast", action="store_true")
+
+    t = sub.add_parser("translate", help="translate text with a free provider and verify it through the gates")
+    t.add_argument("text", nargs="*", help="one or more English strings")
+    t.add_argument("--file", help="text file, one string per line")
+    t.add_argument("--to", dest="target", required=True, help="target language code, e.g. ja")
+    t.add_argument("--from", dest="source", default="en")
+    t.add_argument("--provider", default="local", choices=sorted(k for k in PROVIDERS if k != "file"))
+    t.add_argument("--model", default=None, help="local model id (default google/madlad400-3b-mt)")
+    t.add_argument("--no-labse", action="store_true", help="skip the meaning check")
+    t.add_argument("--labse-min", type=float, default=0.75)
+    t.add_argument("--report-dir", default="reports")
 
     h = sub.add_parser("health", help="gate 1 only")
     h.add_argument("--provider", required=True, choices=sorted(k for k in PROVIDERS if k != "file"))
@@ -87,6 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"settings error: {e}", file=sys.stderr)
         return 2
 
+    if args.cmd == "translate":
+        return _translate(args, settings)
+
     if args.cmd == "health":
         prov = get_provider(args.provider, settings)
         try:
@@ -128,6 +143,56 @@ def main(argv: list[str] | None = None) -> int:
     if s.get("failing_checks"):
         print("failing checks  " + "  ".join(f"{k}={v}" for k, v in s["failing_checks"].items()))
     print(f"report {m}")
+    return rep.exit_code
+
+
+def _translate(args, settings: Settings) -> int:
+    import dataclasses
+
+    texts = list(args.text)
+    if args.file:
+        try:
+            texts += [ln.strip() for ln in Path(args.file).read_text(encoding="utf-8").splitlines() if ln.strip()]
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"input error: {e}", file=sys.stderr)
+            return 2
+    if not texts:
+        print("input error: give text arguments or --file", file=sys.stderr)
+        return 2
+    try:
+        languages.get(args.source)
+        languages.get(args.target)
+    except languages.UnknownLanguage as e:
+        print(f"input error: {e}", file=sys.stderr)
+        return 2
+    if args.model:
+        settings = dataclasses.replace(settings, local_model=args.model)
+    cases = [TestCase(id=f"t{i}", source=s, source_lang=args.source, target_lang=args.target)
+             for i, s in enumerate(texts, 1)]
+    cfg = RunConfig(provider=args.provider, settings=settings,
+                    quality=QualityConfig(labse=not args.no_labse, labse_min=args.labse_min))
+    try:
+        rep = run_cases(cases, cfg)
+    except TranslationError as e:
+        print(f"provider error: {e}", file=sys.stderr)
+        return 2
+    _, m = report_mod.write(rep, args.report_dir)
+    print(f"provider {rep.provider}  health {'ok' if rep.health.ok else 'FAIL'}  ({rep.health.detail})")
+    if not rep.health.ok:
+        return rep.exit_code
+    print(f"{'#':<4}{'status':<7}{'source':<32}{'translation':<34}notes")
+    for c in rep.cases:
+        notes = []
+        for g in c.gates:
+            for ch in g.checks:
+                if ch.status in ("fail", "error"):
+                    notes.append(f"{ch.name}: {ch.detail}")
+                elif ch.name == "labse" and ch.value is not None:
+                    notes.append(f"meaning {ch.value:.2f}")
+        out = c.hypothesis if c.hypothesis is not None else (c.error or "")
+        print(f"{c.case_id:<4}{c.status.upper():<7}{c.source[:30]:<32}{out[:32]:<34}{'; '.join(notes)}")
+    bs = rep.summary.get("by_status", {})
+    print(f"pass {bs.get('pass', 0)}  fail {bs.get('fail', 0)}  error {bs.get('error', 0)}  report {m}")
     return rep.exit_code
 
 
