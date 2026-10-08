@@ -126,7 +126,8 @@ def _summarize(report_cases: list[CaseReport], health: HealthResult) -> dict:
     lat_sorted = sorted(lat)
     p95 = lat_sorted[max(0, math.ceil(0.95 * len(lat_sorted)) - 1)] if lat_sorted else None
     quality_scored = sum(
-        1 for c in report_cases for g in c.gates if g.gate == "quality" and g.status in ("pass", "fail")
+        1 for c in report_cases for g in c.gates if g.gate == "quality"
+        and any(ch.status in ("pass", "fail") for ch in g.checks)
     )
     return {
         "health_ok": health.ok,

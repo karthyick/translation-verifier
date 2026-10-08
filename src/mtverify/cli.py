@@ -31,7 +31,7 @@ def _build() -> argparse.ArgumentParser:
     r.add_argument("--bleu-min", type=float, default=None)
     r.add_argument("--comet", default=None, metavar="MODEL",
                    help="e.g. Unbabel/wmt22-comet-da or Unbabel/wmt22-cometkiwi-da (needs [comet])")
-    r.add_argument("--comet-min", type=float, default=0.5)
+    r.add_argument("--comet-min", type=float, default=0.75)
     r.add_argument("--labse", action="store_true", help="source/output LaBSE cosine (needs [labse])")
     r.add_argument("--labse-min", type=float, default=0.75)
     r.add_argument("--gpus", type=int, default=0)

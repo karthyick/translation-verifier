@@ -51,3 +51,26 @@ def test_optional_models_skip_when_not_installed(monkeypatch, ta_case):
     assert _check(gate, "comet").status == "skip"
     assert _check(gate, "labse").status == "skip"
     assert gate.status == "pass"  # skips never fail a gate
+
+
+def test_comet_runs_with_one_worker_off_windows(monkeypatch, ta_case):
+    """COMET 2.2 crashes on macOS MPS with num_workers=0; we must pass a worker count."""
+    import sys
+    import types
+
+    seen = {}
+
+    class FakeModel:
+        def predict(self, data, **kw):
+            seen.update(kw)
+            return types.SimpleNamespace(scores=[0.91] * len(data))
+
+    fake = types.ModuleType("comet")
+    fake.download_model = lambda name: "/tmp/fake.ckpt"
+    fake.load_from_checkpoint = lambda path: FakeModel()
+    monkeypatch.setitem(sys.modules, "comet", fake)
+    gate = QualityScorer(QualityConfig(comet_model="Unbabel/wmt22-comet-da")).score(
+        [ta_case], [ta_case.reference])[0]
+    assert _check(gate, "comet").status == "pass" and _check(gate, "comet").value == 0.91
+    assert seen["num_workers"] == (0 if sys.platform == "win32" else 1)
+    assert _check(gate, "comet").threshold == 0.75
