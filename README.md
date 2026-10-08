@@ -55,7 +55,7 @@ mtverify run --cases cases/smoke.jsonl --provider file
  |                                                                            |
  |   chrF2  82.4  (threshold 50)                         -> pass              |
  |   BLEU   70.2  (informational)                        -> pass              |
- |   COMET  0.87  example value, --comet Unbabel/wmt22-comet-da  (optional)  |
+ |   COMET  0.67  live run, --comet Unbabel/wmt22-comet-da -> FAIL (< 0.75)  |
  |   LaBSE  0.93  example value, --labse, needs no reference     (optional)  |
  =============================================================================
                                  |
@@ -172,7 +172,7 @@ src/mtverify/
   providers/         base (HttpProvider with retry), deepl, google, azure, file
   gates/             health, functional, quality
   data/smoke.jsonl   bundled 27-language smoke set
-tests/               62 tests, all offline (httpx.MockTransport for providers)
+tests/               226 tests, all offline (httpx.MockTransport for providers)
 ```
 
 ---
@@ -238,7 +238,7 @@ Keys are read from the environment only and never appear in logs or reports (`Se
 |---|---|---|---|---|
 | chrF2 | always | yes | `--chrf-min 50` | character F-score; good for Tamil, Hindi and other rich morphology |
 | BLEU | always | yes | `--bleu-min` (off) | word n-gram overlap; `char` tokenizer for ja/ko/th, `zh` for zh |
-| COMET | `--comet MODEL` | `wmt22-comet-da` yes, `wmt22-cometkiwi-da` no | `--comet-min 0.5` | neural, trained on human ratings; the strongest single signal |
+| COMET | `--comet MODEL` | `wmt22-comet-da` yes, `wmt22-cometkiwi-da` no | `--comet-min 0.75` | neural, trained on human ratings; the only check here that catches wrong meaning |
 | LaBSE | `--labse` | no | `--labse-min 0.75` | cosine between source and output embeddings; cheap meaning check |
 
 ```
@@ -257,7 +257,7 @@ Rough reading of the numbers:
 |---|---|---|---|
 | chrF2 | < 40 | 50-60 | > 60 |
 | BLEU | < 20 | 30-40 | > 40 |
-| COMET | < 0.3 | 0.3-0.5 | > 0.5 |
+| COMET (wmt22-comet-da) | < 0.7 | 0.75-0.85 | > 0.9 |
 | LaBSE cosine | < 0.6 | 0.7-0.8 | > 0.8 |
 
 Compare systems only on the same case file. Absolute numbers move with the test set.
@@ -305,7 +305,7 @@ lingua enum name (or `None`), BLEU tokenizer, length band.
 ```
 mtverify run --cases F --provider {file,deepl,google,azure}
              [--report-dir reports] [--chrf-min 50] [--bleu-min N]
-             [--comet MODEL] [--comet-min 0.5] [--labse] [--labse-min 0.75] [--gpus 0]
+             [--comet MODEL] [--comet-min 0.75] [--labse] [--labse-min 0.75] [--gpus 0]
              [--repeat] [--batch-size N] [--fail-fast] [-v]
 mtverify health --provider {deepl,google,azure}
 mtverify languages
@@ -356,12 +356,45 @@ new metric:    add a _xxx_scores() method on QualityScorer that returns one Chec
 
 ## Verified
 
+### Offline, every language
+
 | what | how | result |
 |---|---|---|
-| unit + integration tests | `pytest` | 62 passed |
+| unit + integration tests | `pytest` | 226 passed |
+| per-language damage matrix | `tests/test_all_languages.py` | 27 languages x 6 cases, all caught |
 | lint | `ruff check src tests` | clean |
 | offline smoke run | `mtverify run --cases cases/smoke.jsonl --provider file` | 27 pass, 5 fail (the 5 planted), exit 1 |
 | missing key path | `mtverify health --provider deepl` with no key | `FAIL deepl: MTVERIFY_DEEPL_KEY is not set`, exit 2 |
+
+```
+ per language (27):   good output        -> pass
+                      {name} -> NAME     -> placeholders FAIL
+                      123 -> 132         -> numbers FAIL
+                      English echo       -> untranslated + language FAIL
+                      empty              -> not_empty FAIL
+                      other script       -> language FAIL
+```
+
+### Live, a real translation API
+
+Run on 2026-10-08 against MyMemory (free public MT, no key), all 27 languages, real HTTP,
+then COMET `wmt22-comet-da` on the same outputs.
+
+```
+ 27 languages --> live API --> GATE 1 ok --> GATE 2 --> GATE 3 chrF + COMET
+                  p95 790 ms                 |            |
+                                             |            +-- lowest COMET: mr 0.60 ur 0.63 kn 0.64 ta 0.67
+                                             |                "ships" came back as "ships (boats)"
+                                             +-- gu: {name} came back as {NAME}  -> FAIL
+```
+
+| layer | caught |
+|---|---|
+| Gate 2 rules | gu `{NAME}` placeholder change |
+| chrF | nothing new; boat errors still scored 53-58 |
+| COMET | all 4 boat errors ranked bottom, below 0.75; clean European outputs 0.91-0.97 |
+
+Lesson: rules catch broken structure, only COMET catches wrong meaning. Turn it on for release gates.
 
 Sources for the metric guidance: [Unbabel COMET](https://github.com/Unbabel/COMET),
 [GEMBA-MQM](https://arxiv.org/abs/2310.13988), [MetricX-24](https://arxiv.org/abs/2410.03983),

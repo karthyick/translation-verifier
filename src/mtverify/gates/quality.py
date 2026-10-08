@@ -9,6 +9,7 @@ Missing optional packages produce a 'skip', never an error.
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
 
 import sacrebleu
@@ -24,7 +25,7 @@ class QualityConfig:
     chrf_min: float = 50.0
     bleu_min: float | None = None  # informational by default
     comet_model: str | None = None  # e.g. Unbabel/wmt22-comet-da or Unbabel/wmt22-cometkiwi-da
-    comet_min: float = 0.5
+    comet_min: float = 0.75  # wmt22-comet-da: clean output scores ~0.9; 0.5 let meaning errors through
     labse: bool = False
     labse_min: float = 0.75
     batch_size: int = 16
@@ -80,8 +81,11 @@ class QualityScorer:
                 if needs_ref:
                     row["ref"] = c.reference or ""
                 data.append(row)
+            # COMET 2.2 on a Mac with MPS sets num_workers=0 yet passes a 'fork' context, which torch
+            # rejects. One worker avoids that; Windows must stay at 0.
+            workers = 0 if sys.platform == "win32" else 1
             out = self._comet.predict(data, batch_size=self.cfg.batch_size, gpus=self.cfg.gpus,
-                                      progress_bar=False)
+                                      progress_bar=False, num_workers=workers)
             scores = list(out.scores)
         except Exception as e:  # model download, CUDA, gated repo ...
             log.warning("comet failed: %s", e)
